@@ -2,15 +2,24 @@ import sqlite3
 import traceback
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import os
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-CORS(app, supports_credentials=True)
+# 放行跨域，确保前后端连通
+CORS(app, origins=[
+    "https://trace-fronted-delta.online",
+    "https://www.trace-fronted-delta.online",
+    "https://trace-fronted-delta.vercel.app"
+])
 
-DB_FILE = 'trace_memory.db'
+# 确保在云端环境下绝对路径准确
+DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'trace_memory.db')
 
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    # 建立行迹节点表
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS travel_nodes (
             node_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,9 +35,51 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    # [TR-004] 建立用户鉴权表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_code TEXT PRIMARY KEY,
+            password_hash TEXT NOT NULL
+        )
+    ''')
     conn.commit()
     conn.close()
 
+# [TR-004] 登录与注册聚合接口
+@app.route('/api/login', methods=['POST'])
+def login():
+    try:
+        data = request.json
+        user_code = data.get('user_code', '').strip()
+        password = data.get('password', '').strip()
+        
+        if not user_code or not password:
+            return jsonify({"status": "error", "message": "需提供暗号与密钥"}), 400
+
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("SELECT password_hash FROM users WHERE user_code = ?", (user_code,))
+        row = cursor.fetchone()
+
+        if row:
+            # 用户存在，校验密码
+            if check_password_hash(row[0], password):
+                conn.close()
+                return jsonify({"status": "success", "message": "身份核验通过，欢迎回归"}), 200
+            else:
+                conn.close()
+                return jsonify({"status": "error", "message": "身份核验失败，密钥错误"}), 401
+        else:
+            # 用户不存在，自动注册并加密密码
+            hashed_pw = generate_password_hash(password)
+            cursor.execute("INSERT INTO users (user_code, password_hash) VALUES (?, ?)", (user_code, hashed_pw))
+            conn.commit()
+            conn.close()
+            return jsonify({"status": "success", "message": "全新记忆空域已开辟"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# 匹配前端的 POST 录入接口
 @app.route('/api/add_node', methods=['POST'])
 def add_node():
     try:
@@ -55,6 +106,7 @@ def add_node():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+# 匹配前端的 GET 查询接口
 @app.route('/api/get_nodes', methods=['GET'])
 def get_nodes():
     try:
@@ -63,7 +115,6 @@ def get_nodes():
 
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        # 核心优化：ORDER BY visit_date DESC 实现人类记忆的倒叙回溯
         cursor.execute('''
             SELECT node_id, visit_date, visit_time, city, location_name, companion, photo_urls, diary_text, expense 
             FROM travel_nodes 
@@ -88,7 +139,8 @@ def get_nodes():
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
 
+# 启动时初始化数据库
+init_db()
+
 if __name__ == '__main__':
-    init_db()
-    print("🚀 《行迹》终极倒叙网关就绪，监听 5000 端口...")
     app.run(debug=True, port=5000)
