@@ -35,7 +35,7 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
-    # [TR-004] 建立用户鉴权表
+    # 建立用户鉴权表
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_code TEXT PRIMARY KEY,
@@ -45,7 +45,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-# [TR-004] 登录与注册聚合接口
+# 登录与注册聚合接口
 @app.route('/api/login', methods=['POST'])
 def login():
     try:
@@ -79,7 +79,7 @@ def login():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# 匹配前端的 POST 录入接口
+# 录入接口
 @app.route('/api/add_node', methods=['POST'])
 def add_node():
     try:
@@ -106,7 +106,7 @@ def add_node():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# 匹配前端的 GET 查询接口
+# 查询接口
 @app.route('/api/get_nodes', methods=['GET'])
 def get_nodes():
     try:
@@ -139,7 +139,6 @@ def get_nodes():
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# 启动时初始化数据库
 init_db()
 
 if __name__ == '__main__':
