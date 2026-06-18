@@ -177,14 +177,42 @@ def update_avatar():
         return jsonify({"status": "error"}), 500
 
 @app.route('/api/submit_feedback', methods=['POST'])
+# 将 app.py 最下方的 submit_feedback 函数替换为以下内容：
+@app.route('/api/submit_feedback', methods=['POST'])
 def submit_feedback():
     try:
         data = request.json
-        # 预留飞书 Webhook 接口
-        return jsonify({"status": "success", "message": "星空监测员已收到您的反馈！"}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        user_code = data.get('user_code', '匿名漫游者')
+        fb_type = data.get('type', '未分类')
+        content = data.get('content', '')
 
+        if not content:
+            return jsonify({"status": "error", "message": "吐槽内容不能为空哦"}), 400
+
+        # ====== 已经为你填入专属的飞书机器人链接 ======
+        FEISHU_WEBHOOK_URL = "https://open.feishu.cn/open-apis/bot/v2/hook/81a23155-ca57-4e19-abcc-27dad30d36d7"
+
+        # ====== 组装原生的消息卡片格式 ======
+        msg_text = f"🚨 收到来自漫游舱的新反馈！\n\n👤 漫游者：{user_code}\n🏷️ 类型：{fb_type}\n💬 内容：{content}"
+        payload = {
+            "msg_type": "text",
+            "content": {
+                "text": msg_text
+            }
+        }
+
+        # ====== 发送至飞书群 ======
+        res = requests.post(FEISHU_WEBHOOK_URL, json=payload)
+
+        if res.status_code == 200:
+            return jsonify({"status": "success", "message": "发射成功！星空监测员已收到"}), 200
+        else:
+            return jsonify({"status": "error", "message": "发射失败，飞书机器人信号微弱"}), 500
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+        
 init_db()
 
 if __name__ == '__main__':
