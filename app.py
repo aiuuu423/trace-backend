@@ -45,7 +45,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-# 登录与注册聚合接口
+# 1. 登录与注册聚合接口
 @app.route('/api/login', methods=['POST'])
 def login():
     try:
@@ -62,7 +62,6 @@ def login():
         row = cursor.fetchone()
 
         if row:
-            # 用户存在，校验密码
             if check_password_hash(row[0], password):
                 conn.close()
                 return jsonify({"status": "success", "message": "身份核验通过，欢迎回归"}), 200
@@ -70,7 +69,6 @@ def login():
                 conn.close()
                 return jsonify({"status": "error", "message": "身份核验失败，密钥错误"}), 401
         else:
-            # 用户不存在，自动注册并加密密码
             hashed_pw = generate_password_hash(password)
             cursor.execute("INSERT INTO users (user_code, password_hash) VALUES (?, ?)", (user_code, hashed_pw))
             conn.commit()
@@ -79,7 +77,7 @@ def login():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# 录入接口
+# 2. 录入接口 (增)
 @app.route('/api/add_node', methods=['POST'])
 def add_node():
     try:
@@ -106,7 +104,47 @@ def add_node():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# 查询接口
+# 3. 修改接口 (改) - V1.2新增
+@app.route('/api/update_node', methods=['POST'])
+def update_node():
+    try:
+        data = request.json
+        if not data or not data.get('node_id') or not data.get('user_code'):
+            return jsonify({"status": "error", "message": "缺少必要标识"}), 400
+            
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE travel_nodes 
+            SET visit_date=?, visit_time=?, city=?, location_name=?, companion=?, diary_text=?, expense=?, photo_urls=?
+            WHERE node_id=? AND user_code=?
+        ''', (data.get('visit_date'), data.get('visit_time', ''), data.get('city'), 
+              data.get('location_name', ''), data.get('companion', ''), data.get('diary_text', ''), 
+              data.get('expense', None), data.get('photo_urls', ''), data.get('node_id'), data.get('user_code')))
+        conn.commit()
+        conn.close()
+        return jsonify({"status": "success", "message": "记忆已修正"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# 4. 删除接口 (删) - V1.2新增
+@app.route('/api/delete_node', methods=['POST'])
+def delete_node():
+    try:
+        data = request.json
+        if not data or not data.get('node_id') or not data.get('user_code'):
+            return jsonify({"status": "error", "message": "缺少必要标识"}), 400
+            
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM travel_nodes WHERE node_id=? AND user_code=?", (data.get('node_id'), data.get('user_code')))
+        conn.commit()
+        conn.close()
+        return jsonify({"status": "success", "message": "记忆已擦除"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# 5. 查询接口 (查) - 完整还原 V1.1 的序列化逻辑
 @app.route('/api/get_nodes', methods=['GET'])
 def get_nodes():
     try:
@@ -115,6 +153,7 @@ def get_nodes():
 
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
+        # 必须按照严格顺序 SELECT，否则索引会错乱
         cursor.execute('''
             SELECT node_id, visit_date, visit_time, city, location_name, companion, photo_urls, diary_text, expense 
             FROM travel_nodes 
@@ -127,6 +166,7 @@ def get_nodes():
         nodes_list = []
         for row in rows:
             raw_photos = row[6] 
+            # 这里的 photo 处理逻辑是前端展示照片的核心，绝不能省
             photo_array = raw_photos.split('|||') if (raw_photos and raw_photos.strip() != "") else []
             node = {
                 "node_id": row[0], "visit_date": row[1], "visit_time": row[2],
