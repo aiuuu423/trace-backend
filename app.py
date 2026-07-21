@@ -1,6 +1,7 @@
 import sqlite3
 import traceback
 from flask import Flask, request, jsonify
+
 from flask_cors import CORS
 import os
 import requests
@@ -19,7 +20,22 @@ CORS(app, origins=[
 ])
 
 DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'trace_memory.db')
+import os
+import uuid
+from werkzeug.utils import secure_filename
+from flask import send_from_directory
 
+# ==========================================
+# 🌟 V1.4 物理图片存储基建
+# ==========================================
+# 设定图片物理存储路径（在 app.py 同级目录下生成 uploads 文件夹）
+UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp', 'heic'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 # 升级版数据库连接器：支持通过列名获取数据，防止索引错乱
 def get_db_connection():
     conn = sqlite3.connect(DB_FILE)
@@ -130,6 +146,37 @@ def register():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/add_node', methods=['POST'])
+# ==========================================
+# 🌟 V1.4 高清影像双轨上传接口 (修复 CORS 500 报错)
+# ==========================================
+@app.route('/api/upload_image', methods=['POST'])
+def upload_image():
+    if 'file' not in request.files:
+        return jsonify({"status": "error", "message": "未检测到文件流"}), 400
+        
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"status": "error", "message": "文件名为空"}), 400
+        
+    if file and allowed_file(file.filename):
+        # 提取后缀并使用 UUID 重新生成安全且唯一的文件名
+        ext = file.filename.rsplit('.', 1)[1].lower()
+        unique_filename = f"{uuid.uuid4().hex}.{ext}"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+        
+        # 将前端传来的文件落盘保存
+        file.save(filepath)
+        
+        # 极简返回，由全局 CORS(app) 处理跨域头部
+        file_url = f"/uploads/{unique_filename}"
+        return jsonify({"status": "success", "url": file_url})
+        
+    return jsonify({"status": "error", "message": "不支持的文件格式"}), 400
+
+# 🌟 V1.4 开放静态文件访问通道
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 def add_node():
     try:
         data = request.json
